@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: flask-app-multicluster
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - cluster: spoke-staging
+            url: https://kubernetes.default.svc
+            environment: staging
+          - cluster: spoke-prod
+            url: https://prod-cluster-url # Replace with actual prod URL
+            environment: prod
+  template:
+    metadata:
+      name: '{{cluster}}-flask-app'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/{{.Values.repoPath}}' # Dynamically set
+        targetRevision: HEAD
+        path: charts/flask-app
+        helm:
+          valueFiles:
+            - 'values-{{environment}}.yaml'
+      destination:
+        server: '{{url}}'
+        namespace: flask-app
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        createNamespace: true

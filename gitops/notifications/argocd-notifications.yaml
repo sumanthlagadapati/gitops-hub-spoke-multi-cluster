@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  service.slack: |
+    token: $slack-token
+  
+  template.app-deployed: |
+    message: |
+      🚀 Application {{.app.metadata.name}} is being deployed to {{.app.spec.destination.server}}.
+      Status: {{.app.status.sync.status}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{ .app.metadata.name }}",
+          "title_link": "{{.context.argocdurl}}/applications/{{.app.metadata.name}}",
+          "color": "#18be52",
+          "fields": [
+            {"title": "Sync Status", "value": "{{.app.status.sync.status}}", "short": true},
+            {"title": "Health Status", "value": "{{.app.status.health.status}}", "short": true}
+          ]
+        }]
+
+  trigger.on-deployed: |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-deployed]
