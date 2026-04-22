@@ -2,8 +2,7 @@
 
 A production-grade **Multi-Cluster GitOps Architecture** demonstration using **ArgoCD**, **Terraform**, and **Kubernetes**. This platform orchestrates application lifecycles from a central management "Hub" to distributed "Spoke" clusters (Staging & Production).
 
-![Architecture Diagram](https://raw.githubusercontent.com/argoproj/argo-cd/master/docs/assets/argocd-architecture.png)
-*(Note: Replace with your repository's workflow image after upload)*
+![Architecture Diagram](https://raw.githubusercontent.com/sumanthlagadapati/gitops-hub-spoke-multi-cluster/main/README.md) # Placeholder for your image
 
 ## 🏗️ Platform Architecture
 
@@ -31,7 +30,7 @@ As depicted in the Hub & Spoke model, this setup consists of:
 │   ├── notifications/  # Slack webhook & notification templates
 │   └── clusters/       # Multi-cluster ApplicationSets definitions
 ├── terraform/          # AWS EKS & VPC Infrastructure-as-Code
-└── scripts/            # Local lab setup scripts (Kind clusters)
+└── scripts/            # Lab setup scripts (Kind clusters)
 ```
 
 ## 🛠️ Local Demo Setup (Kind)
@@ -40,15 +39,20 @@ To replicate this environment locally on your machine:
 
 1.  **Requirements**: `docker`, `kind`, `kubectl`, `helm`.
 2.  **Spin up Clusters**:
-    ```bash
-    ./scripts/setup-kind.sh
-    ```
-    This script creates three clusters: `hub`, `spoke-staging`, and `spoke-prod`.
+    - **Windows (PowerShell)**: `.\scripts\setup-kind.ps1`
+    - **Linux/Mac (Bash)**: `./scripts/setup-kind.sh`
 3.  **Bootstrap GitOps**:
     ```bash
     kubectl config use-context kind-hub
-    kubectl apply -k gitops/hub/
+    kubectl apply -f gitops/clusters/appset-flask.yaml
     ```
+
+## 🤖 GitHub Actions Setup
+
+To enable the automated CI/CD pipeline:
+
+1.  **Create Secret**: Go to your Repo **Settings > Secrets > Actions**.
+2.  **Add `PAT_TOKEN`**: Generate a Personal Access Token with `repo` and `workflow` permissions and add it as a secret. This allows the CI to update your manifest files automatically.
 
 ## ☁️ Cloud Infrastructure (Terraform)
 
@@ -59,13 +63,5 @@ terraform init
 terraform apply
 ```
 
-## 🤖 CI/CD Workflow
-
-1.  **Code Change**: Developer pushes to `main`.
-2.  **Build**: GitHub Image Builder kicks in, tags a new version.
-3.  **Sync**: A second action updates `gitops/clusters/staging/values.yaml` with the new tag.
-4.  **GitOps**: ArgoCD detects the change and reconciles the **Staging Spoke**.
-5.  **Promote**: Manual PR merge to `prod` branch reconciles the **Production Spoke**.
-
 ---
-*Created with ❤️ by Antigravity for your GitHub Portfolio.*
+*Created with ❤️ by Antigravity for [sumanthlagadapati](https://github.com/sumanthlagadapati).*
