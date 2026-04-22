@@ -11,7 +11,7 @@ def hello():
         "cluster": os.getenv("CLUSTER_NAME", "unknown"),
         "environment": os.getenv("ENVIRONMENT", "dev"),
         "hostname": socket.gethostname(),
-        "version": "v1.0.0"
+        "version": "v2.0.0-demo"
     })
 
 @app.route('/health')
