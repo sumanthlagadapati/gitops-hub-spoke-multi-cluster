@@ -35,6 +35,10 @@ As depicted in the Hub & Spoke model, this setup consists of:
 
 ## 🛠️ Local Demo Setup (Kind)
 
+## 📊 Live Cluster Dashboard & Traffic Metrics
+
+- Visit `/dashboard` on your Flask app to see live cluster status and traffic metrics (requests per route, cluster/environment info, etc).
+
 To replicate this environment locally on your machine:
 
 1.  **Requirements**: `docker`, `kind`, `kubectl`, `helm`.
