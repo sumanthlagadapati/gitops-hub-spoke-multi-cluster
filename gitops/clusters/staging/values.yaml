@@ -1,5 +1,8 @@
 replicaCount: 2
 
+image:
+  tag: "latest"
+
 env:
   clusterName: "kind-spoke-staging"
   environment: "staging"
