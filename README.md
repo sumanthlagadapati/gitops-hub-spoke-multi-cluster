@@ -68,4 +68,4 @@ terraform apply
 ```
 
 ---
-*Created with ❤️ by Antigravity for [sumanthlagadapati](https://github.com/sumanthlagadapati).*
+*Created with ❤️ by [sumanthlagadapati](https://github.com/sumanthlagadapati).*
