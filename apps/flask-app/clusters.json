@@ -1,0 +1,6 @@
+[
+  {"name": "hub", "environment": "prod", "status": "Healthy"},
+  {"name": "spoke-1", "environment": "staging", "status": "Healthy"},
+  {"name": "spoke-2", "environment": "dev", "status": "Degraded"},
+  {"name": "spoke-3", "environment": "prod", "status": "Unreachable"}
+]
