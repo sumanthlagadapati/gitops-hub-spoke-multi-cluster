@@ -2,6 +2,10 @@ from flask import Flask, jsonify, render_template_string, request, session, redi
 import os
 import socket
 import threading
+from werkzeug.security import check_password_hash, generate_password_hash
+import sqlite3
+import secrets
+import datetime
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'supersecretkey')
@@ -171,20 +175,26 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        # Authenticate against users table in DB
         db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
         try:
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
             c.execute('SELECT password, role FROM users WHERE username = ?', (username,))
             row = c.fetchone()
-            conn.close()
-            if row and row[0] == password:
+            if row and check_password_hash(row[0], password):
                 session['username'] = username
                 session['role'] = row[1]
+                # Audit log
+                c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'login', ''))
+                conn.commit()
+                conn.close()
                 return redirect(url_for('dashboard'))
             else:
                 error = 'Invalid username or password'
+                if row:
+                    c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'login_failed', 'Invalid password'))
+                    conn.commit()
+            conn.close()
         except Exception as e:
             error = f'Login error: {e}'
     html = '''
@@ -196,14 +206,247 @@ def login():
         <label>Password: <input name=\"password\" type=\"password\"></label><br>
         <button type=\"submit\">Login</button>
     </form>
+    <p>Don't have an account? <a href="/register">Register here</a></p>
+    <p><a href="/reset_password_request">Forgot password?</a></p>
     </body></html>
     '''
     return render_template_string(html, error=error)
 
+@app.route('/reset_password_request', methods=['GET', 'POST'])
+def reset_password_request():
+    error = None
+    message = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute('SELECT id FROM users WHERE username = ?', (username,))
+            row = c.fetchone()
+            if row:
+                token = secrets.token_urlsafe(32)
+                expiry = (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()
+                c.execute('UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE username = ?', (token, expiry, username))
+                c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'reset_password_requested', ''))
+                conn.commit()
+                conn.close()
+                message = f"Password reset link (valid 1 hour): <a href='/reset_password/{token}'>/reset_password/{token}</a>"
+            else:
+                error = 'Username not found.'
+                conn.close()
+        except Exception as e:
+            error = f'Reset error: {e}'
+    html = '''
+    <html><head><title>Reset Password</title></head><body>
+    <h2>Reset Password</h2>
+    {% if error %}<p style=\"color:red;\">{{ error }}</p>{% endif %}
+    {% if message %}<p style=\"color:green;\">{{ message|safe }}</p>{% endif %}
+    <form method=\"post\">
+        <label>Username: <input name=\"username\"></label><br>
+        <button type=\"submit\">Request Password Reset</button>
+    </form>
+    <p><a href="/login">Back to login</a></p>
+    </body></html>
+    '''
+    return render_template_string(html, error=error, message=message)
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    error = None
+    message = None
+    db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+    if request.method == 'POST':
+        password = request.form.get('password')
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute('SELECT username, reset_token_expiry FROM users WHERE reset_token = ?', (token,))
+            row = c.fetchone()
+            if row:
+                username, expiry = row
+                if expiry and datetime.datetime.fromisoformat(expiry) > datetime.datetime.utcnow():
+                    hashed = generate_password_hash(password)
+                    c.execute('UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE username = ?', (hashed, username))
+                    c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'reset_password_completed', ''))
+                    conn.commit()
+                    conn.close()
+                    message = 'Password reset successful. You may now <a href="/login">login</a>.'
+                else:
+                    error = 'Reset link expired.'
+                    conn.close()
+            else:
+                error = 'Invalid reset link.'
+        except Exception as e:
+            error = f'Reset error: {e}'
+    html = '''
+    <html><head><title>Set New Password</title></head><body>
+    <h2>Set New Password</h2>
+    {% if error %}<p style=\"color:red;\">{{ error }}</p>{% endif %}
+    {% if message %}<p style=\"color:green;\">{{ message|safe }}</p>{% endif %}
+    <form method=\"post\">
+        <label>New Password: <input name=\"password\" type=\"password\"></label><br>
+        <button type=\"submit\">Set Password</button>
+    </form>
+    <p><a href="/login">Back to login</a></p>
+    </body></html>
+    '''
+    return render_template_string(html, error=error, message=message)
+
 @app.route('/logout', methods=['POST'])
 def logout():
+    username = session.get('username')
+    if username:
+        db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'logout', ''))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
     session.clear()
     return redirect(url_for('login'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    error = None
+    success = None
+    db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+    if 'username' in session and session.get('role') != 'admin':
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        role = request.form.get('role', 'viewer')
+        if not username or not password:
+            error = 'Username and password required.'
+        else:
+            try:
+                conn = sqlite3.connect(db_path)
+                c = conn.cursor()
+                c.execute('SELECT id FROM users WHERE username = ?', (username,))
+                if c.fetchone():
+                    error = 'Username already exists.'
+                else:
+                    hashed = generate_password_hash(password)
+                    c.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', (username, hashed, role))
+                    c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (username, 'register', f'role={role}'))
+                    conn.commit()
+                    success = 'Registration successful. You can now log in.'
+                conn.close()
+            except Exception as e:
+                error = f'Registration error: {e}'
+    html = '''
+    <html><head><title>Register</title></head><body>
+    <h2>Register</h2>
+    {% if error %}<p style=\"color:red;\">{{ error }}</p>{% endif %}
+    {% if success %}<p style=\"color:green;\">{{ success }}</p>{% endif %}
+    <form method=\"post\">
+        <label>Username: <input name=\"username\"></label><br>
+        <label>Password: <input name=\"password\" type=\"password\"></label><br>
+        <label>Role: <select name=\"role\">
+            <option value=\"viewer\">viewer</option>
+            <option value=\"admin\">admin</option>
+        </select></label><br>
+        <button type=\"submit\">Register</button>
+    </form>
+    <p>Already have an account? <a href=\"/login\">Login here</a></p>
+    </body></html>
+    '''
+    return render_template_string(html, error=error, success=success)
+
+@app.route('/admin/users')
+def admin_users():
+    if 'username' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+    users = []
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        for row in c.execute('SELECT username, role FROM users'):
+            users.append({'username': row[0], 'role': row[1]})
+        conn.close()
+    except Exception as e:
+        return f'<h2>Error loading users: {e}</h2>', 500
+    html = '''
+    <html><head><title>User Management</title></head><body>
+    <h2>User Management (Admin)</h2>
+    <a href=\"/dashboard\">Back to Dashboard</a>
+    <table border=1><tr><th>Username</th><th>Role</th><th>Delete</th></tr>
+    {% for user in users %}
+        <tr><td>{{ user.username }}</td><td>{{ user.role }}</td>
+        <td>
+            {% if user.username != session['username'] %}
+            <form method=\"post\" action=\"/admin/delete_user\" style=\"display:inline;\">
+                <input type=\"hidden\" name=\"username\" value=\"{{ user.username }}\">
+                <button type=\"submit\">Delete</button>
+            </form>
+            {% endif %}
+        </td></tr>
+    {% endfor %}
+    </table>
+    <h3>Add User</h3>
+    <form method=\"post\" action=\"/register\">
+        <label>Username: <input name=\"username\"></label><br>
+        <label>Password: <input name=\"password\" type=\"password\"></label><br>
+        <label>Role: <select name=\"role\">
+            <option value=\"viewer\">viewer</option>
+            <option value=\"admin\">admin</option>
+        </select></label><br>
+        <button type=\"submit\">Add User</button>
+    </form>
+    </body></html>
+    '''
+    return render_template_string(html, users=users, session=session)
+
+@app.route('/admin/delete_user', methods=['POST'])
+def admin_delete_user():
+    if 'username' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    username = request.form.get('username')
+    if not username or username == session['username']:
+        return redirect(url_for('admin_users'))
+    db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute('DELETE FROM users WHERE username = ?', (username,))
+        c.execute('INSERT INTO audit_log (username, action, details) VALUES (?, ?, ?)', (session['username'], 'delete_user', username))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/audit_log')
+def admin_audit_log():
+    if 'username' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    db_path = os.path.join(os.path.dirname(__file__), 'clusters.db')
+    logs = []
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        for row in c.execute('SELECT username, action, details, timestamp FROM audit_log ORDER BY timestamp DESC LIMIT 100'):
+            logs.append({'username': row[0], 'action': row[1], 'details': row[2], 'timestamp': row[3]})
+        conn.close()
+    except Exception as e:
+        return f'<h2>Error loading audit log: {e}</h2>', 500
+    html = '''
+    <html><head><title>Audit Log</title></head><body>
+    <h2>Audit Log (Admin)</h2>
+    <a href=\"/dashboard\">Back to Dashboard</a>
+    <table border=1><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Details</th></tr>
+    {% for log in logs %}
+        <tr><td>{{ log.timestamp }}</td><td>{{ log.username }}</td><td>{{ log.action }}</td><td>{{ log.details }}</td></tr>
+    {% endfor %}
+    </table>
+    </body></html>
+    '''
+    return render_template_string(html, logs=logs)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

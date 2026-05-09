@@ -68,4 +68,53 @@ terraform apply
 ```
 
 ---
+
+## 🏛️ Architecture Design
+
+### Overview
+
+This platform uses a **Hub & Spoke Multi-Cluster GitOps Architecture** to manage and deploy applications securely and efficiently across multiple Kubernetes clusters. The architecture is designed for scalability, security, and operational transparency.
+
+#### Components
+
+- **Management Cluster (Hub):**
+  - Runs ArgoCD for GitOps-based deployment management.
+  - Uses ApplicationSets to automate deployment to all spoke clusters.
+  - Integrates with Slack for real-time deployment notifications.
+- **Spoke Clusters (Staging/Prod):**
+  - Isolated Kubernetes clusters for different environments.
+  - Each cluster receives deployments and updates from the Hub via ArgoCD ApplicationSets.
+  - Supports dynamic scaling and independent upgrades.
+- **CI/CD Pipeline:**
+  - GitHub Actions automates Docker builds and Helm chart updates.
+  - Auto-promotion mechanism updates Helm chart tags to trigger deployments.
+- **Cloud Infrastructure:**
+  - Terraform provisions EKS clusters and networking on AWS.
+- **Flask Application:**
+  - Provides a dashboard for cluster status and traffic metrics.
+  - Implements secure user authentication, registration, and admin management.
+  - All user/admin actions are audit-logged for security and compliance.
+
+#### Security & User Management
+
+- Passwords are securely hashed before storage.
+- User registration and admin management are available via the Flask app.
+- Audit logging tracks all login, logout, registration, and admin actions.
+- Password reset functionality is implemented with secure, time-limited tokens.
+
+#### Diagram
+
+> **To add your architecture diagram:**
+> 1. Add your architecture diagram image (e.g., `architecture.png`) to the project root or a `docs/images` folder.
+> 2. Notify the maintainer or update the README to reference this image.
+> 3. Would you like to:
+>    - Upload an image file now (tell us the filename/path)?
+>    - Use a specific external image URL?
+>    - Have us create a placeholder diagram (ASCII or Mermaid) directly in the README?
+
+Example (update the path as needed):
+```markdown
+![Architecture Diagram](docs/images/architecture.png)
+```
+
 *Created with ❤️ by [sumanthlagadapati](https://github.com/sumanthlagadapati).*

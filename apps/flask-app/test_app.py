@@ -18,8 +18,17 @@ def login(client, username, password):
     # Users are now in the database
     return client.post('/login', data={'username': username, 'password': password}, follow_redirects=True)
 
+def register(client, username, password, role='viewer'):
+    return client.post('/register', data={'username': username, 'password': password, 'role': role}, follow_redirects=True)
+
 def logout(client):
     return client.post('/logout', follow_redirects=True)
+
+def request_password_reset(client, username):
+    return client.post('/reset_password_request', data={'username': username}, follow_redirects=True)
+
+def reset_password(client, token, new_password):
+    return client.post(f'/reset_password/{token}', data={'password': new_password}, follow_redirects=True)
 
 def test_dashboard_metrics_increment(client):
     # Login as viewer
@@ -79,7 +88,29 @@ def test_api_clusters(client):
 
     # Test forbidden for viewer
     login(client, 'viewer', 'viewerpass')
-    rv2 = client.get('/api/clusters')
+
+def test_password_reset_flow(client):
+    # Register a new user
+    username = 'resetuser'
+    password = 'oldpass'
+    new_password = 'newpass123'
+    register(client, username, password)
+    logout(client)
+    # Request password reset
+    rv = request_password_reset(client, username)
+    assert b'Password reset link' in rv.data
+    import re
+    m = re.search(br'/reset_password/([\w\-_=]+)', rv.data)
+    assert m, 'Reset link not found in response'
+    token = m.group(1).decode()
+    # Use the reset link to set a new password
+    rv2 = reset_password(client, token, new_password)
+    assert b'Password reset successful' in rv2.data
+    # Login with new password
+    rv3 = login(client, username, new_password)
+    assert b'Dashboard' in rv3.data or b'dashboard' in rv3.data
+    logout(client)
+   rv2 = client.get('/api/clusters')
     assert rv2.status_code == 403
     data2 = rv2.get_json()
     assert data2['error'].startswith('Forbidden')
@@ -90,3 +121,23 @@ def test_api_clusters_auth_required(client):
     assert rv.status_code == 401
     data = rv.get_json()
     assert data['error'] == 'Unauthorized'
+
+def test_registration_and_audit_log(client):
+    # Register a new user
+    username = 'testuser'
+    password = 'testpass123'
+    register(client, username, password, 'viewer')
+    # Login as new user
+    login(client, username, password)
+    rv = client.get('/dashboard')
+    assert rv.status_code == 200
+    # Logout
+    logout(client)
+    # Login as admin and check audit log
+    login(client, 'admin', 'adminpass')
+    rv = client.get('/admin/audit_log')
+    assert rv.status_code == 200
+    assert b'testuser' in rv.data
+    assert b'register' in rv.data
+    assert b'login' in rv.data
+    logout(client)

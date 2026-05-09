@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from werkzeug.security import generate_password_hash
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'clusters.db')
 
@@ -33,12 +34,27 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
-            role TEXT NOT NULL
+            role TEXT NOT NULL,
+            reset_token TEXT,
+            reset_token_expiry DATETIME
         )
     ''')
-    # Demo users: admin/adminpass, viewer/viewerpass
-    c.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ('admin', 'adminpass', 'admin'))
-    c.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ('viewer', 'viewerpass', 'viewer'))
+    # Demo users: admin/adminpass, viewer/viewerpass (hashed)
+    admin_hash = generate_password_hash('adminpass')
+    viewer_hash = generate_password_hash('viewerpass')
+    c.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ('admin', admin_hash, 'admin'))
+    c.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ('viewer', viewer_hash, 'viewer'))
+    # Audit log table
+    c.execute('DROP TABLE IF EXISTS audit_log')
+    c.execute('''
+        CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            action TEXT,
+            details TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     conn.close()
 
